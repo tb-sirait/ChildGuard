@@ -1,17 +1,22 @@
 package com.example.gpstracker
 
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
 import androidx.fragment.app.Fragment
 
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.example.gpstracker.server.APIService
+import com.example.gpstracker.server.get_ortu
 
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -19,12 +24,16 @@ import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.maps.android.SphericalUtil
-import okhttp3.OkHttpClient
+import retrofit2.Call
 import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 
 import java.text.DecimalFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 
 class MapsView : Fragment() {
 
@@ -32,7 +41,7 @@ class MapsView : Fragment() {
 
     private val callback = OnMapReadyCallback { googleMap ->
         mMap = googleMap
-        val uper = LatLng(-6.228241, 106.788967)
+        val uper = LatLng(-6.116500, 106.788967)
         val kranji = LatLng(-6.224860160583242, 106.9797861304309)
         val ortu = LatLng(-6.135565, 106.177429)
 
@@ -48,6 +57,21 @@ class MapsView : Fragment() {
         setCustomMarkerIcon(kranji, "StasiunKranji", distanceInKm)
         setCustomMarkerIconOrtu(ortu, "Orang Tua",distanceOrtukeAnak1, distanceOrtukeAnak2)
         googleMap.moveCamera(CameraUpdateFactory.newLatLng(uper))
+
+//        if (ContextCompat.checkSelfPermission(
+//                this, Manifest.permission.ACCESS_FINE_LOCATION
+//            ) == PackageManager.PERMISSION_GRANTED
+//        ) {
+//            // Izin lokasi sudah diberikan, lanjutkan membaca posisi.
+//        } else {
+//            // Izin belum diberikan, minta izin kepada pengguna.
+//            ActivityCompat.requestPermissions(
+//                this,
+//                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+//                MY_PERMISSIONS_REQUEST_LOCATION
+//            )
+//        }
+
     }
 
     override fun onCreateView(
@@ -62,9 +86,20 @@ class MapsView : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         val mapFragment = childFragmentManager.findFragmentById(R.id.map) as SupportMapFragment?
         mapFragment?.getMapAsync(callback)
+//        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+//
+//        checkLocationPermission()
+//
+//        // Example: Get last known location
+//        getLastLocation()
+//
+//        // Example: Request location updates
+//        requestLocationUpdates()
+        makeApiCall()
     }
 
     // Apply Marker and Marker Option on Map (anak)
+    @SuppressLint("PotentialBehaviorOverride")
     private fun setCustomMarkerIcon(location: LatLng, name: String, JarakAntarKeduanya: Double) {
         val markerOptions = MarkerOptions()
             .position(location)
@@ -76,118 +111,190 @@ class MapsView : Fragment() {
         )
 
         markerOptions.icon(bitmapDescriptor)
+        val marker = mMap.addMarker(markerOptions)
+        // Menambahkan event listener untuk marker
+        marker?.tag = CustomInfoMarker(
+            requireContext(),
+            name,
+            "", // Ganti dengan data alamat yang sesuai
+            "Online", // Ganti dengan data status yang sesuai
+            "Tanggal: tanggal" // Ganti dengan data tanggal yang sesuai
+        )
+
+        mMap.setOnMarkerClickListener {  clickedMarker ->
+            // Menampilkan info window saat marker di klik
+            clickedMarker.tag?.let { customInfoMarker ->
+                mMap.setInfoWindowAdapter(customInfoMarker as GoogleMap.InfoWindowAdapter)
+                clickedMarker.showInfoWindow()
+            }
+            true
+        }
         mMap.addMarker(markerOptions)
     }
 
     // Apply Marker and Marker Option on Map (Ortu)
+    @SuppressLint("PotentialBehaviorOverride")
     private fun setCustomMarkerIconOrtu(location: LatLng, name: String, JarakKeAnak1: Double, JarakKeAnak2: Double) {
+        val bitmapDescriptor = BitmapDescriptorFactory.fromBitmap(
+            BitmapFactory.decodeResource(resources, R.drawable.icon_ortu)
+        )
+
         val markerOptions = MarkerOptions()
             .position(location)
             .title(name)
             .snippet("$JarakKeAnak1 km, $JarakKeAnak2 km")
 
-        val bitmapDescriptor = BitmapDescriptorFactory.fromBitmap(
-            BitmapFactory.decodeResource(resources, R.drawable.icon_ortu)
+        markerOptions.icon(bitmapDescriptor)
+        val marker = mMap.addMarker(markerOptions)
+
+        // Menambahkan event listener untuk marker
+        marker?.tag = CustomInfoMarker(
+            requireContext(),
+            name,
+            "Serang, Banten. ", // Ganti dengan data alamat yang sesuai
+            "Online", // Ganti dengan data status yang sesuai
+            "Tanggal: tanggal" // Ganti dengan data tanggal yang sesuai
         )
 
-        markerOptions.icon(bitmapDescriptor)
-        mMap.addMarker(markerOptions)
+        mMap.setOnMarkerClickListener { clickedMarker ->
+            // Menampilkan info window saat marker di klik
+            clickedMarker.tag?.let { customInfoMarker ->
+                mMap.setInfoWindowAdapter(customInfoMarker as GoogleMap.InfoWindowAdapter)
+                clickedMarker.showInfoWindow()
+            }
+            true
+        }
     }
 
+
     // Take all data with passing from API using Bearer Token by Retrofit Library
-    object RetrofitClient {
-        private const val BASE_URL = "http://127.0.0.1:8000/parents"
+    object RetrofitInstance {
+        private const val BASE_URL = "http://127.0.0.1:8000/parents/"
 
-        private val httpClient = OkHttpClient.Builder().addInterceptor { chain ->
-            val original = chain.request()
-            val requestBuilder = original.newBuilder()
-                .method(original.method, original.body)
-            val request = requestBuilder.build()
-            chain.proceed(request)
-        }.build()
-
-        private val retrofit: Retrofit = Retrofit.Builder()
+        val retrofit: Retrofit = Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
-            .client(httpClient)
             .build()
-
-        val apiService: APIService = retrofit.create(APIService::class.java)
     }
 
     // Main Process of Managing data from API to Map Visualization
-//    private fun makeApiCall() {
-//        val call = RetrofitClient.apiService.getData("73ob73y64nt3n653k4l1")
-//        call.enqueue(object : Callback<ApiResponse> {
-//            override fun onResponse(call: Call<ApiResponse>, response: Response<ApiResponse>) {
-//                if (response.isSuccessful) {
-//                    val data = response.body()
-//                    if (data != null) {
-//                        // Handle the response data
-//                        val yourDataList = data.data
+    private fun makeApiCall() {
+        val apiService = RetrofitInstance.retrofit.create(APIService::class.java)
+        val call = apiService.getData()
+
+        call.enqueue(object : retrofit2.Callback<get_ortu> {
+            override fun onResponse(call: Call<get_ortu>, response: retrofit2.Response<get_ortu>) {
+                if (response.isSuccessful) {
+                    val data = response.body()
+                    Log.d("API_CALL", "Request successful. Data received: $data")
+                } else {
+                    // Handle kesalahan
+                }
+            }
+
+            override fun onFailure(call: Call<get_ortu>, t: Throwable) {
+                Log.e("API_CALL", "Network request failed: ${t.message}")
+            }
+        })
+    }
+
+    inner class CustomInfoMarker(
+        private val context: Context,
+        private val nama: String,
+        private val alamat: String,
+        private val status: String,
+        s: String
+    ) : GoogleMap.InfoWindowAdapter {
+
+        @SuppressLint("SimpleDateFormat")
+        private val dateFormat = SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
+
+        @SuppressLint("InflateParams", "SetTextI18n")
+        override fun getInfoContents(marker: Marker): View? {
+            val infoView = LayoutInflater.from(context).inflate(R.layout.custom_marker, null)
+
+            // Temukan view yang ada di layout kustom
+            val namaAnakTextView = infoView.findViewById<TextView>(R.id.nama_anak)
+            val alamatTextView = infoView.findViewById<TextView>(R.id.alamat)
+            val statusTextView = infoView.findViewById<TextView>(R.id.status)
+            val tanggalTextView = infoView.findViewById<TextView>(R.id.tanggal)
+
+            // Mengatur teks sesuai data yang diberikan
+            namaAnakTextView.text = "Nama Anak: $nama"
+            alamatTextView.text = "Alamat: $alamat"
+            statusTextView.text = "Status: $status"
+
+            // Mengatur teks tanggal sesuai waktu saat ini
+            val currentDate = Date()
+            val formattedDate = dateFormat.format(currentDate)
+            tanggalTextView.text = "Tanggal: $formattedDate"
+
+            return infoView
+        }
+
+        override fun getInfoWindow(marker: Marker): View? {
+            return null // return null to use getInfoContents method
+        }
+    }
+
+//    private fun checkLocationPermission() {
+//        if (ActivityCompat.checkSelfPermission(
+//                this,
+//                Manifest.permission.ACCESS_FINE_LOCATION
+//            ) == PackageManager.PERMISSION_GRANTED
+//        ) {
+//            // Permission granted, continue with location-related operations.
+//        } else {
+//            // Permission not granted, request it from the user.
+//            ActivityCompat.requestPermissions(
+//                this,
+//                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+//                MY_PERMISSIONS_REQUEST_LOCATION
+//            )
+//        }
+//    }
 //
-//                        for (item in yourDataList) {
-//                            val name = item.name
-//                            val date = item.date
-//                            val lat = item.lat
-//                            val lon = item.lon
-//                            val heading = item.heading.toFloat()
-//                            val calcspeed = item.calcspeed
-//                            val imo = item.IMO
-//                            val mmsi = item.MMSI
-//
-//                            Log.d("API Response", "Data: $data")
-//                            // Create a LatLng object using the latitude and longitude
-//                            val location = LatLng(lat, lon)
-//
-//                            // Marker ini khusus untuk mengetahui lokasi, nama kapal, dan arah kapal melaju menggunakan custom marker
-//                            setCustomMarkerIcon(location, name, heading, calcspeed, date, imo, mmsi)
-//                        }
+//    private fun getLastLocation() {
+//        if (ActivityCompat.checkSelfPermission(
+//                this,
+//                Manifest.permission.ACCESS_FINE_LOCATION
+//            ) == PackageManager.PERMISSION_GRANTED
+//        ) {
+//            fusedLocationClient.lastLocation
+//                .addOnSuccessListener { location: Location? ->
+//                    location?.let {
+//                        val currentLatLng = LatLng(it.latitude, it.longitude)
+//                        // Do something with currentLatLng
 //                    }
-//                } else {
-//                    // Handle unsuccessful response (e.g., non-2xx status codes)
-//                    val errorResponseCode = response.code() // HTTP status code
-//                    val errorMessage = response.errorBody()?.string()
+//                }
+//        }
+//    }
+//
+//    private fun requestLocationUpdates() {
+//        if (ActivityCompat.checkSelfPermission(
+//                this,
+//                Manifest.permission.ACCESS_FINE_LOCATION
+//            ) == PackageManager.PERMISSION_GRANTED
+//        ) {
+//            val locationRequest = LocationRequest.create()
+//                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+//                .setInterval(10000) // 10 seconds
+//
+//            val locationCallback = object : LocationCallback() {
+//                override fun onLocationResult(locationResult: LocationResult) {
+//                    locationResult.lastLocation?.let {
+//                        val updatedLatLng = LatLng(it.latitude, it.longitude)
+//                        // Do something with updatedLatLng
+//                    }
 //                }
 //            }
 //
-//            override fun onFailure(call: Call<ApiResponse>, t: Throwable) {
-//                // Handle failure
-//                // This method is called when the API call fails, for example, due to a network issue.
-//                val errorServer = ErrorServer()
-//                childFragmentManager.beginTransaction()
-//                    .replace(R.id.map, errorServer)
-//                    .addToBackStack(null) // Optional, adds the fragment to the back stack
-//                    .commit()
-//            }
-//        })
+//            fusedLocationClient.requestLocationUpdates(
+//                locationRequest,
+//                locationCallback,
+//                Looper.getMainLooper()
+//            )
+//        }
 //    }
 
-    @SuppressLint("SetTextI18n")
-    private fun createCustomMarker(nama: String, jarakAntarAnak: Double): Bitmap? {
-        val markerView = layoutInflater.inflate(R.layout.custom_marker, null)
-
-        // Set text or customize the content of the marker view
-        val nama = markerView.findViewById<TextView>(R.id.nama_anak)
-        val jarakAntarAnak = markerView.findViewById<TextView>(R.id.alamat)
-
-        nama.text = nama.toString()
-        jarakAntarAnak.text = "Jarak antar titik: $jarakAntarAnak km"
-
-        // Measure and layout the marker view
-        markerView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        markerView.layout(0, 0, markerView.measuredWidth, markerView.measuredHeight)
-
-        // Create a bitmap from the marker view
-        val bitmap = Bitmap.createBitmap(
-            markerView.measuredWidth,
-            markerView.measuredHeight,
-            Bitmap.Config.ARGB_8888
-        )
-
-        val canvas = Canvas(bitmap)
-        markerView.draw(canvas)
-
-        return bitmap
-    }
 }

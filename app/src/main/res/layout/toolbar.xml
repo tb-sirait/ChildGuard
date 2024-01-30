@@ -4,8 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="?android:attr/actionBarSize"
     android:orientation="horizontal"
-    android:id="@+id/toolbar"
-    android:background="@color/white">
+    android:id="@+id/toolbar">
 
     <TextView
         android:layout_width="match_parent"

@@ -1,6 +1,6 @@
 package com.example.gpstracker.server
 
-data class put_ortu
+data class PutOrtu
     (val status: String,
      val message: String,
-     val `data`: List<put_ortu>)
+     val `data`: List<update_ortu_item>)
