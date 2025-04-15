@@ -1,17 +1,5 @@
 # ChildGuard
 Project ChildGuard made by Group 4 Multidiscipline Project <br>
-1. M. Rayhan Putra Thahir (105220007)
-2. Taor Baga (105220031)
-3. Reitamaditya Hadyan Wijaya (105220032)
-4. Roky Rosian Raharjo (105220044)
-<br>
-and
-<br>
-Group 3 Microcontroller and IoT <br>
-1. Taor Baga (105220031) <br>
-2. Reitamaditya Hadyan Wijaya (105220032) <br>
-3. Malino Vebiola Rajagukguk (105220036) <br>
-<br>
 
 ## Problem Statement
 
